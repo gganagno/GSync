@@ -1,0 +1,39 @@
+PROJECT OVERVIEW
+
+	GLIB:
+		- gpulock_t : spinlocks
+		- gputlock_t : ticketlocks
+		- gbarrier_t : barriers
+		
+
+
+Changes to M4 macros for GPU architercture support:
+
+-	G_MALLOC : malloc -> cudaMallocManaged
+-	MAIN_ENV : 
+- 	MAIN_END :
+-	CREATE	 : CREATE(func,p,args...) -> func <<< p,1 >>> (p,args);
+
+	-- function must be first argument
+	-- number of total threads must be second argument
+	-- rest of args
+
+- 	BARDEC 	 : gbarrier_t * $1 = NULL;
+- 	BARRIER  : gbarrier_wait();
+
+-   LOCKDEC	 : gpulock_t * $1 = NULL;
+-   LOCKINIT : glock_init();
+- 	LOCK 	 : glock_lock();
+- 	UNLOCK	 : glock_unlock();
+
+
+- 	WAIT_FOR_END : cudaDeviceSynchronize();
+
+- 	GET_PID		 : 	get_global_index();
+
+- 	GCLOCK_START :	cudaEvent start;
+- 	GCLOCK_END   :	cudaEvent end;
+- 	GCLOCK_DIFF  :	float ms_elapsed;
+
+
+

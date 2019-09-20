@@ -1,0 +1,265 @@
+
+#include <stddef.h>
+#include <stdlib.h>
+#include <assert.h>
+#include <errno.h>
+#include <stdbool.h>
+#include <time.h>
+#include <stdio.h>
+
+#include "./../../gsync/gsync.h"
+MAIN_ENV
+
+
+int * a;
+int * b;
+int * c;
+int N;
+int P;
+
+
+
+
+__host__ void print_table(int * table){
+
+  int i,j;
+
+  for(i=0;i<N;i++){
+
+    for(j=0;j<N;j++) {
+      printf("%d ",table[i * N +j]); 
+    }
+    printf("\n");
+  }
+   printf("\n\n\n");
+}
+ 
+
+__global__ void matrix_mul(int P,int * a,int * b,int * c,int N, gbarrier_t * bar , gpulock_t * lock){
+
+ 
+
+  int sum=0,i,j,k,pid;
+
+  GET_PID(pid);
+
+
+  int start = N / P * pid % N;
+
+  int end = start + (N / P);
+
+
+  if(pid == P-1 && end < N) end = N;
+
+  printf("I am  %d with range (%d-%d)\n",pid,start,end);
+
+  for (i = start; i < end; i++) {
+
+    for (j = 0; j < N; j++) {
+
+      for (k = 0; k < N; k++) {
+
+        sum = sum + a[i * N + k] * b[k * N + j];
+      }
+      c[i * N + j] = sum;
+      sum = 0;
+    }
+  }
+
+  BARRIER(bar);
+}
+
+
+
+__host__ void usage(){
+
+  printf(
+      "\n"
+      "Usage:\n"
+      "    sas_mul -f input_file -n table_size -p number_of_processors [-v -h]\n" 
+  );
+
+  printf(
+      "\n"
+      "Options:\n"
+      " -f    path    Path to input file\n"
+      " -p    number  Number of Processors\n"
+      " -n    number  Number of Table Size. (Assume that N is a power of P)\n"
+      " -v            Verbose Printing\n"
+      " -h            This help message\n"
+  );
+
+  exit(EXIT_FAILURE);
+}
+
+
+
+
+__host__ void check_args(FILE * fp , int P , int N){
+
+  if(fp == NULL){
+    printf("File is null\nExiting..\n");
+    exit(EXIT_FAILURE);
+  }
+
+  if(P < 1 || P > 8){
+    printf("Invalid number of processors (P < 1 || P > 8) \nExiting..\n");
+    exit(EXIT_FAILURE);
+  }
+
+  if(N < 1){
+    printf("Invalid number of tablesize (N < 1)\nExiting..\n");
+    exit(EXIT_FAILURE);
+  }
+
+}
+
+
+
+
+int main(int argc , char ** argv){
+
+  FILE * fp = NULL;
+
+  int i=0, j=0;
+
+  size_t lines = 0;
+
+  char * line = NULL;
+
+  char * ff = NULL;
+
+
+  int opt;
+
+  int verbose = 0;
+
+  MAIN_INITENV();
+
+
+
+  while ((opt = getopt(argc, argv,"n:p:f:vh")) != -1) {
+
+    switch (opt) {
+
+      case 'n':
+
+        N = atoi(optarg);
+
+        if(N < 1){
+          printf("Invalid number of tablesize(N < 1)\nExiting..\n");
+          exit(EXIT_FAILURE);
+        }
+        break;
+
+      case 'p':
+
+        P = atoi(optarg);
+
+        if(P < 1 || P > 8){
+          printf("Invalid number of processors (P < 1 || P > 8) \nExiting..\n");
+          exit(EXIT_FAILURE);
+        }
+        break;
+
+      case 'f':
+
+        fp = fopen(optarg,"r");
+        ff = strdup(optarg);
+
+        if (fp == NULL){
+          printf("File is null\nExiting..\n");
+          exit(EXIT_FAILURE);
+        }
+        break;
+
+      case 'v':
+        verbose=1;
+        break;
+
+      case 'h':
+        usage();
+        break;
+
+      default:
+        usage();
+    }
+  }
+
+
+
+
+  check_args(fp,P,N);
+
+  BARDEC(bar);
+
+  LOCKDEC(lock);
+
+  LOCKINIT(lock);
+
+  BARINIT(bar,P);
+  
+  printf("File: %s P: %d N : %d\n",ff,P,N); 
+
+  G_MALLOC( a, N * N * sizeof(int));
+
+  G_MALLOC( b, N * N * sizeof(int));
+
+  G_MALLOC( c, N * N * sizeof(int));
+
+
+  for(i=0;i<N;i++) {
+
+    for(j=0;j<N;j++) {
+
+      if(getline(&line,&lines,fp) == -1){
+
+        printf("getline:148\nExiting..\n");
+        return -1;
+      }
+
+      a[i * N + j] = atoi(line);
+    }      
+  }
+  
+
+
+  for(i=0;i<N;i++){
+
+    for(j=0;j<N;j++) {
+
+      if(getline(&line,&lines,fp) == -1){
+        printf("getline:161\nExiting..\n");
+        return -1;
+      }
+      b[i * N + j] = atoi(line);
+    }      
+  }
+  
+
+  if(verbose) printf("Init completed\n");
+
+  GCLOCK_START();
+
+  CREATE(matrix_mul,P,a,b,c,N,bar,lock);
+
+  GCLOCK_END();
+
+  float elapsed = 0;
+
+  GCLOCK_DIFF(elapsed);
+
+
+
+  if(verbose)printf("Processing time: %f ms\n",elapsed);
+
+  if(verbose)printf("\n\nA*B\n\n");
+
+  if(verbose)print_table(c);
+
+
+  MAIN_END
+
+  return 0;
+
+}
